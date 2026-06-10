@@ -1,0 +1,5 @@
+// ① 复制本文件为 config.local.js（已被 .gitignore 排除，不会进仓库），填入你自己的 DeepSeek API Key；
+// ② 或者：直接打开页面，点右下角 🔑「设置 Key」粘贴 —— 存在你浏览器的 localStorage，不上传、不进仓库。
+//
+// 拿 Key：https://platform.deepseek.com/  注册后在 API Keys 里创建。
+window.UNIWORK_DEEPSEEK_KEY = "sk-在这里填你自己的DeepSeekKey";

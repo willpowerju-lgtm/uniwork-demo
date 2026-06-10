@@ -1,0 +1,9 @@
+# Uniwork demo —— 后端 server.py 的 Python 依赖
+#
+# /api/search（联网搜索）只用 Python 标准库，无需任何依赖。
+# /api/quote（股票行情/估值）用 yfinance；它会自动拉 pandas / numpy 等。
+#
+# 安装：  python3 -m pip install -r requirements.txt
+# 注：原计划的 /api/cn_macro（akshare 中国宏观）因依赖冲突已弃用，server.py 里保留为休眠扩展位。
+
+yfinance>=1.2.0
