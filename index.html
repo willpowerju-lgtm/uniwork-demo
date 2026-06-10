@@ -8,13 +8,14 @@
 <!-- ============ UMD 依赖（无需构建） ============ -->
 <script src="https://unpkg.com/vue@3.4.21/dist/vue.global.prod.js"></script>
 <script src="https://unpkg.com/mammoth@1.7.2/mammoth.browser.min.js"></script>
-<!-- docx 高保真预览：docx-preview（依赖 JSZip） -->
+<!-- JSZip：LuckyExcel 解析 xlsx 依赖（docx 现走 TipTap 所见即所得，已移除 docx-preview） -->
 <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
-<script src="https://unpkg.com/docx-preview@0.3.2/dist/docx-preview.min.js"></script>
 <!-- 编辑后的 HTML → docx：切回预览时重新生成，保证预览同步编辑改动 -->
 <script src="https://unpkg.com/html-docx-js@0.3.1/dist/html-docx.js"></script>
 <!-- html -> markdown（保存 .md 用） -->
 <script src="https://unpkg.com/turndown@7.1.3/dist/turndown.js"></script>
+<!-- PDF 预览：pdf.js（UMD，零构建）→ window.pdfjsLib；worker 在 renderPdf 内惰性指定 -->
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
 <script src="https://unpkg.com/marked@12.0.2/marked.min.js"></script>
 <!-- 真·Excel：Luckysheet（全功能电子表格，对标 SpreadJS）+ LuckyExcel（xlsx 导入） -->
@@ -50,9 +51,13 @@
   .main{flex:1;display:flex;min-height:0}
 
   .sidebar{width:230px;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
-  .sb-sec{display:flex;flex-direction:column;min-height:0}
-  .sb-files{flex:1 1 60%}
-  .sb-sessions{flex:1 1 40%;border-top:1px solid var(--border)}
+  .sb-tabs{display:flex;flex-shrink:0;border-bottom:1px solid var(--border)}
+  .sb-tab{flex:1;text-align:center;padding:9px 6px;font-size:12px;font-weight:600;color:var(--sub);cursor:pointer;border-bottom:2px solid transparent;display:flex;align-items:center;justify-content:center;gap:5px}
+  .sb-tab:hover{background:var(--hover)}
+  .sb-tab.active{color:var(--brand);border-bottom-color:var(--brand);background:var(--bg)}
+  .sb-tab-n{font-size:10px;background:var(--hover);color:var(--sub);border-radius:8px;padding:0 5px;font-weight:700}
+  .sb-tab.active .sb-tab-n{background:#eaf1ff;color:var(--brand)}
+  .sb-sec{display:flex;flex-direction:column;min-height:0;flex:1}
   .sb-head{padding:11px 14px 7px;font-weight:600;font-size:12px;color:var(--sub);display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
   .file.session{align-items:flex-start}
   .file.session .s-x{opacity:0;align-self:center;width:16px;height:16px;line-height:14px;text-align:center;border-radius:5px;color:var(--sub);font-size:14px;flex-shrink:0}
@@ -68,6 +73,16 @@
   .file:hover{background:var(--hover)}
   .file.active{background:#eaf1ff;color:var(--brand);font-weight:600}
   .file .ic{width:18px;text-align:center}
+  /* WIKI/Vault 文件夹树 */
+  .tree{padding:2px 6px}
+  .trow{display:flex;align-items:center;gap:5px;padding:4px 6px;border-radius:7px;cursor:pointer;font-size:13px;white-space:nowrap;overflow:hidden;user-select:none}
+  .trow:hover{background:var(--hover)}
+  .trow.tfile.active{background:#eaf1ff;color:var(--brand);font-weight:600}
+  .trow.tfolder{color:var(--text)}
+  .trow.tfolder.top{font-weight:700;font-size:12px;letter-spacing:.3px;color:var(--sub);text-transform:uppercase;margin-top:2px}
+  .tw-caret{width:11px;flex-shrink:0;color:var(--sub);font-size:10px;text-align:center}
+  .tw-ic{width:17px;flex-shrink:0;text-align:center}
+  .tw-name{overflow:hidden;text-overflow:ellipsis}
 
   .editor-col{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;background:var(--bg)}
   .ed-tabs{height:40px;background:var(--panel);border-bottom:1px solid var(--border);display:flex;align-items:stretch;flex-shrink:0;overflow-x:auto}
@@ -92,12 +107,17 @@
   .sheet-edit-bar button{font-size:12px;border:0;border-radius:7px;padding:5px 12px;cursor:pointer}
   .sheet-edit-bar .reject{background:#fff;border:1px solid #ddd;color:#666}
   .sheet-edit-bar .accept{background:linear-gradient(135deg,var(--brand),var(--brand2));color:#fff}
-  .ed-scroll{flex:1;overflow:auto;display:flex;justify-content:center;align-items:flex-start;padding:28px;min-height:0}
-  /* docx 高保真预览 */
-  .docx-prev-wrap{flex:1;overflow:auto;min-height:0;padding:24px 0}
-  .docx-prev-wrap .docx-wrapper{background:transparent;padding:0;display:flex;flex-direction:column;align-items:center;gap:24px}
-  .docx-prev-wrap .docx-wrapper>section.docx{box-shadow:var(--shadow);border-radius:6px;margin:0!important}
-  .docx-edited-page{width:794px;max-width:92%;margin:0 auto;background:#fff;box-shadow:var(--shadow);border-radius:6px;padding:48px 56px}
+  .ed-scroll{flex:1;overflow:auto;display:flex;flex-direction:column;align-items:center;padding:28px;min-height:0}
+  /* PDF 预览（pdf.js → canvas + 可选中文字层） */
+  .pdf-wrap{flex:1;overflow:auto;min-height:0;padding:24px 0;position:relative}
+  #pdf-host{display:flex;flex-direction:column;align-items:center;gap:20px}
+  .pdf-page{position:relative;background:#fff;box-shadow:var(--shadow);border-radius:4px;overflow:hidden}
+  .pdf-page canvas{display:block}
+  .textLayer{position:absolute;inset:0;overflow:hidden;line-height:1}
+  .textLayer span{color:transparent;position:absolute;white-space:pre;cursor:text;transform-origin:0% 0%}
+  .textLayer ::selection{background:rgba(51,112,255,.35)}
+  .pdf-fail{padding:40px;text-align:center;color:#d33;font-size:13px}
+  .pdf-loading{position:absolute;left:50%;top:40px;transform:translateX(-50%);color:var(--sub);font-size:13px}
   /* Luckysheet 全屏宿主 */
   .ls-wrap{flex:1;position:relative;min-height:0;min-width:0;overflow:hidden}
   .ls-host{position:absolute;inset:0;overflow:hidden}
@@ -120,25 +140,41 @@
   .sugg-inline .si-ok{background:#e3f6ec;color:#138a52}.sugg-inline .si-ok:hover{background:#cdeeda}
   .sugg-inline .si-no{background:#fdecec;color:#d33}.sugg-inline .si-no:hover{background:#f9d8d8}
 
-  /* 文档 / TipTap */
-  .doc-content{line-height:1.6;font-size:14px;color:#2a2e34;outline:none}
+  /* 文档正文排版：贴近 Word 文档观感（字体栈 / 段后距 / 内容宽表格 / 标题层级）。mammoth 丢原格式，这里靠 CSS 统一成干净文档样式 */
+  .doc-content{font-family:-apple-system,"Helvetica Neue","Segoe UI","PingFang SC","Microsoft YaHei","Hiragino Sans GB","Source Han Sans SC",sans-serif;line-height:1.55;font-size:14px;color:#1f2329;outline:none}
   .doc-content:focus{outline:none}
-  .doc-content h1{font-size:22px;line-height:1.3;margin:4px 0 12px;font-weight:700;letter-spacing:.2px}
-  .doc-content h2{font-size:17px;line-height:1.3;margin:18px 0 8px;font-weight:700;padding-bottom:5px;border-bottom:1px solid #eee}
-  .doc-content h3{font-size:15px;line-height:1.3;margin:14px 0 6px;font-weight:600}
-  .doc-content p{margin:7px 0}
-  .doc-content ul,.doc-content ol{margin:7px 0;padding-left:22px}
-  .doc-content li{margin:2px 0}
-  .doc-content li>ul,.doc-content li>ol{margin:2px 0}
-  .doc-content table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13px;line-height:1.45}
-  .doc-content th,.doc-content td{border:1px solid #dfe2e6;padding:5px 9px;text-align:left}
-  .doc-content th{background:#f7f8fa;font-weight:600}
-  .doc-content strong{color:#1f2329}
+  .doc-content h1{font-size:22px;line-height:1.3;margin:2px 0 13px;font-weight:700;letter-spacing:.2px;color:#11161c}
+  .doc-content h2{font-size:17px;line-height:1.3;margin:20px 0 9px;font-weight:700;padding-bottom:5px;border-bottom:1px solid #ebedf0;color:#11161c}
+  .doc-content h3{font-size:15px;line-height:1.3;margin:15px 0 6px;font-weight:600;color:#1f2329}
+  .doc-content p{margin:0 0 9px}                         /* Word 式段后距 */
+  .doc-content td p,.doc-content th p{margin:0}          /* 单元格内段落不撑高 */
+  .doc-content ul,.doc-content ol{margin:8px 0;padding-left:24px}
+  .doc-content li{margin:3px 0}
+  .doc-content li>ul,.doc-content li>ol{margin:3px 0}
+  .doc-content table{border-collapse:collapse;width:auto;max-width:100%;margin:12px 0;font-size:13px;line-height:1.5}   /* 内容宽，不再强制铺满（强制100%最像"非Word"） */
+  .doc-content th,.doc-content td{border:1px solid #d7dbe0;padding:6px 11px;text-align:left;vertical-align:top}
+  .doc-content th{background:#f5f6f8;font-weight:600}
+  .doc-content strong{color:#11161c;font-weight:600}
   .doc-content blockquote{border-left:3px solid var(--brand);background:#f7f9ff;padding:6px 12px;margin:10px 0;color:#444}
   .doc-content :first-child{margin-top:0}
   /* 建议标记 */
   ins.sugg-ins{color:#389e0d;background:#f6ffed;text-decoration:none;border-radius:3px;padding:0 1px}
   del.sugg-del{color:#cf1322;background:#fff1f0;text-decoration:line-through;border-radius:3px;padding:0 1px}
+  /* 双链 [[X]]：编辑器内实时可点 */
+  .wikilink{color:var(--brand);background:#eef3ff;border-radius:3px;padding:0 2px;cursor:pointer;font-weight:500}
+  .wikilink:hover{background:#dbe7ff;text-decoration:underline}
+  .wikilink-unresolved{color:#c0392b;background:#fdecec}
+  .wikilink-unresolved:hover{background:#f9d8d8}
+  .wikilink-flash{animation:wlflash 1.5s ease}                   /* 点反向链接跳到来源里的引用处时闪一下 */
+  @keyframes wlflash{0%,100%{background:#eef3ff}25%,55%{background:#ffe06a;box-shadow:0 0 0 4px #ffe06a}}
+  /* 反向链接（Obsidian backlinks）：紧跟正文之后，作为笔记页脚段落 */
+  .backlinks-sec{margin-top:26px;padding-top:14px;border-top:1px dashed #e1e4e8}
+  .bl-head{font-size:12px;font-weight:700;color:var(--sub);letter-spacing:.3px;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+  .bl-item{display:flex;flex-direction:column;gap:2px;padding:7px 9px;border-radius:8px;cursor:pointer}
+  .bl-item:hover{background:var(--hover)}
+  .bl-name{font-size:13px;color:var(--brand);font-weight:600}
+  .bl-snip{font-size:12px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bl-empty{font-size:12px;color:var(--sub);padding:2px 0}
 
 
   /* 悬浮工具栏 */
@@ -155,7 +191,7 @@
   .bubble-pop{position:fixed;z-index:9999;transform:translateX(-50%);background:#fff;border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.18);padding:8px;width:340px;max-width:92vw;animation:pop .12s ease}
   .bubble-pop::after{content:"";position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);border:6px solid transparent;border-top-color:#fff;border-bottom:0}
   .bp-row{display:flex;align-items:center;gap:6px}
-  .bp-input{flex:1;border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;font-family:inherit;outline:none}
+  .bp-input{flex:1;border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;font-family:inherit;outline:none;resize:none;line-height:1.5;max-height:120px;overflow-y:auto;display:block}
   .bp-input:focus{border-color:var(--brand)}
   .bp-send{flex-shrink:0;border:0;border-radius:8px;background:var(--brand);color:#fff;font-size:12px;font-weight:600;padding:7px 10px;cursor:pointer;white-space:nowrap}
   .bp-send:hover{background:var(--brand2)}
@@ -212,6 +248,24 @@
   .ctx-chip.file{background:#f7f8fa;border-color:var(--border);color:var(--sub)}
   .ctx-chip .x{margin-left:auto;cursor:pointer;font-weight:700;flex-shrink:0}
   .ctx-chip .txt{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  /* 主上下文挂载条：bound=实心蓝+「上下文」徽标(最强)、follow=虚线灰(待定)、empty=虚线空 —— 与下方 @ 引用 chip 视觉权重拉开 */
+  .ctx-mount{display:flex;align-items:center;margin-bottom:8px;font-size:12px;min-width:0}
+  .ctx-mount .cm-pill{display:inline-flex;align-items:center;gap:6px;max-width:100%;min-width:0;padding:5px 11px;border-radius:999px}
+  .ctx-mount .cm-pill.bound{background:#eaf1ff;border:1px solid #bcd3ff;color:var(--brand);box-shadow:0 1px 1px rgba(37,99,235,.05)}
+  .ctx-mount .cm-pill.follow{background:#f7f8fa;border:1px dashed #c9ced6;color:var(--sub)}
+  .ctx-mount .cm-pill.empty{background:transparent;border:1px dashed var(--border);color:var(--sub)}
+  .ctx-mount .cm-ic{flex-shrink:0;font-size:12px}
+  .ctx-mount .cm-tag{flex-shrink:0;font-size:10px;font-weight:700;letter-spacing:.5px;padding:1px 6px;border-radius:5px;background:var(--brand);color:#fff}
+  .ctx-mount .cm-pill.follow .cm-tag{background:#9aa3af}
+  .ctx-mount .cm-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+  .ctx-mount .cm-pill.follow .cm-name{font-weight:500}
+  .ctx-mount .cm-hint{color:var(--sub);font-weight:400;flex-shrink:0;font-size:11px;opacity:.85}
+  .ctx-mount .cm-x{cursor:pointer;font-weight:700;opacity:.6;flex-shrink:0;margin-left:2px;font-size:13px;line-height:1}
+  .ctx-mount .cm-x:hover{opacity:1}
+  /* @ 引用 chip：白底描边 + 加重「@」，作为次级附加上下文，与实心的挂载条/引用片段区分 */
+  .ctx-chip.ref{background:#fff;border-color:#cfe0ff;color:var(--brand);align-items:center;gap:5px}
+  .ctx-chip.ref .rf-at{font-weight:800;opacity:.6;flex-shrink:0}
+  .ctx-chip.ref .txt{-webkit-line-clamp:1;font-weight:500;word-break:break-all}
   .input-row{display:flex;gap:8px;align-items:center;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:8px 10px}
   .input-row textarea{flex:1;border:0;background:transparent;resize:none;outline:none;font-family:inherit;font-size:14px;line-height:1.5;max-height:120px}
   .send{background:var(--brand);color:#fff;border:0;border-radius:9px;width:34px;height:34px;cursor:pointer;font-size:16px;flex-shrink:0}
@@ -278,26 +332,35 @@
   </div>
 
   <div class="main">
-    <!-- 侧栏：上=工作文件夹，下=历史会话（上下分栏，同时可见） -->
+    <!-- 侧栏：文件 / 会话 两个选项卡（文件夹层级深，分页避免上下挤压；各自满高 + 滚动条） -->
     <div class="sidebar">
+      <div class="sb-tabs">
+        <div class="sb-tab" :class="{active:sideTab==='files'}" @click="sideTab='files'">📁 文件</div>
+        <div class="sb-tab" :class="{active:sideTab==='chats'}" @click="sideTab='chats'">💬 会话<span v-if="sessions.length" class="sb-tab-n">{{ sessions.length }}</span></div>
+      </div>
       <!-- 工作文件夹（点击/拖拽上传） -->
-      <div class="sb-sec sb-files">
+      <div class="sb-sec" v-show="sideTab==='files'">
         <div class="sb-head">
-          <span>📁 工作文件夹</span>
-          <label class="up">+ 上传<input type="file" multiple accept=".docx,.xlsx,.md,.txt,.csv" style="display:none" @change="onUpload"></label>
+          <span>📚 WIKI · 🗄️ Vault</span>
+          <label class="up">+ 上传<input type="file" multiple accept=".docx,.xlsx,.md,.txt,.csv,.pdf" style="display:none" @change="onUpload"></label>
         </div>
-        <div class="filelist" :class="{dragover:dragOver}"
+        <div class="filelist tree" :class="{dragover:dragOver}"
              @dragover.prevent="dragOver=true" @dragleave.prevent="dragOver=false" @drop.prevent="onDrop">
-          <div v-for="f in files" :key="f.id" class="file" :class="{active:f.id===activeId}" @click="openFile(f)">
-            <span class="ic">{{ f.icon }}</span><span>{{ f.name }}</span>
+          <div v-for="row in treeRows" :key="row.type==='folder' ? 'd:'+row.path : 'f:'+row.file.id"
+               class="trow" :class="{tfolder:row.type==='folder', tfile:row.type==='file', top:row.depth===0, active:row.type==='file' && row.file.id===activeId}"
+               :style="{paddingLeft:(6+row.depth*13)+'px'}"
+               @click="row.type==='folder' ? toggleFolder(row.path) : openFile(row.file)">
+            <span v-if="row.type==='folder'" class="tw-caret">{{ row.open?'▾':'▸' }}</span>
+            <span class="tw-ic">{{ row.type==='folder' ? folderIcon(row.path,row.open) : row.icon }}</span>
+            <span class="tw-name">{{ row.name }}</span>
           </div>
           <div v-if="uploadMsg" class="upload-msg" :class="{busy:uploading}">{{ uploadMsg }}</div>
-          <div class="drop-hint" v-if="dragOver">松开即上传 · docx / xlsx / md / csv</div>
+          <div class="drop-hint" v-if="dragOver">松开即上传 · docx / xlsx / md / csv / pdf</div>
         </div>
       </div>
 
       <!-- 历史会话 -->
-      <div class="sb-sec sb-sessions">
+      <div class="sb-sec" v-show="sideTab==='chats'">
         <div class="sb-head">
           <span>💬 历史会话</span>
           <span class="up" @click="newSession">+ 新会话</span>
@@ -327,17 +390,17 @@
           <div v-if="!openTabs.length" class="ed-empty" style="font-size:13px">从左侧打开文件</div>
         </div>
         <span v-if="active" class="autosave">已自动保存</span>
-        <button v-if="active && active.docxBuf" class="save-btn" @click="toggleDocxView">{{ active.view==='edit' ? '切换到预览' : '切换到编辑' }}</button>
         <button v-if="active" class="save-btn" @click="exportActive" :title="'下载到本地（'+exportExt(active)+'）'">导出 {{ exportExt(active) }}</button>
       </div>
 
-      <!-- docx 高保真预览（docx-preview，只读，可选中加入对话） -->
-      <div class="docx-prev-wrap" v-show="active && active.kind==='doc' && active.docxBuf && active.view!=='edit'">
-        <div id="docx-prev-host"></div>
+      <!-- PDF 预览（pdf.js，只读，可选中文字加入对话） -->
+      <div class="pdf-wrap" v-show="active && active.kind==='pdf'">
+        <div id="pdf-host"></div>
+        <div v-if="pdfLoading" class="pdf-loading">⏳ 正在渲染 PDF…</div>
       </div>
 
-      <!-- 文档（md / docx编辑模式）→ TipTap -->
-      <div class="ed-scroll" v-show="!active || (active.kind==='doc' && (!active.docxBuf || active.view==='edit'))">
+      <!-- 文档（md / docx）→ TipTap 所见即所得，直接编辑，无需切换预览 -->
+      <div class="ed-scroll" v-show="!active || active.kind==='doc'">
         <div class="paper">
           <div v-if="suggCount>0" class="sugg-bar">
             <b>Uniwork 修改建议 · {{ suggCount }}</b>
@@ -348,6 +411,15 @@
           <div class="paper-pad">
             <div ref="tiptapEl" class="doc-content"></div>
             <div v-if="!ready" class="loading-tip">⏳ 正在加载 TipTap 编辑器内核…</div>
+            <!-- 反向链接：紧跟正文之后（仅 WIKI/Vault 内的笔记），谁用 [[本笔记]] 链到这里 -->
+            <div v-if="active && active.kind==='doc' && /^(WIKI|Vault)/.test(active.folder||'')" class="backlinks-sec">
+              <div class="bl-head">🔗 反向链接 · {{ backlinks.length }}</div>
+              <div v-if="!backlinks.length" class="bl-empty">还没有其它笔记用 [[…]] 链到这里</div>
+              <div v-for="bl in backlinks" :key="bl.file.id" class="bl-item" @click="openBacklink(bl)">
+                <span class="bl-name">{{ bl.file.name }}</span>
+                <span class="bl-snip">{{ bl.snippet }}</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -410,7 +482,7 @@
             </div>
             <div v-show="m.cotOpen!==false" class="cot-body">{{ m.reasoning }}</div>
           </div>
-          <div class="msg" :class="m.role" v-if="m.role!=='ai' || m.content || !m.reasoning">
+          <div class="msg" :class="m.role" v-if="m.role==='ai' ? (m.content || !m.reasoning) : (m.content && m.content.trim())">
             <div class="bubble-msg" :class="{'cursor-blink':m.streaming && (m.content||!m.reasoning)}"
                  v-html="m.role==='ai' ? renderMd(m.content) : escapeHtml(m.content)"></div>
             <div v-if="m.sources && m.sources.length && !m.streaming" class="sources">
@@ -431,11 +503,22 @@
           </div>
           <div v-if="!suggest.items.length" class="sg-item sg-empty">无匹配项</div>
         </div>
+        <!-- 已挂载的文件上下文指示：让用户随时看到 AI 看的是哪个文件（绑定=已钉死，切预览不影响；未绑定=跟随预览，首次提问后自动钉住） -->
+        <div class="ctx-mount" v-if="curSession">
+          <span v-if="boundFileOf(curSession)" class="cm-pill bound" title="已挂载为本对话的固定上下文，切换预览不影响；点 × 解除（改回跟随预览）">
+            <span class="cm-ic">📎</span><span class="cm-tag">上下文</span><span class="cm-name">{{ boundFileOf(curSession).name }}</span>
+            <span class="cm-x" @click="curSession.bound=null" title="解除挂载">×</span>
+          </span>
+          <span v-else-if="active" class="cm-pill follow" title="当前跟随预览；本对话首次提问后会自动钉住为固定上下文">
+            <span class="cm-ic">📎</span><span class="cm-tag">上下文</span><span class="cm-name">{{ active.name }}</span><span class="cm-hint">跟随预览 · 提问后固定</span>
+          </span>
+          <span v-else class="cm-pill empty"><span class="cm-ic">📎</span><span class="cm-name">未挂载文件</span></span>
+        </div>
         <!-- 上下文区：可堆叠的引用 chips（batch 随下条消息发出）。绑定文件仍作上下文注入，只是不再显示 chip -->
-        <div class="ctx-stack" v-if="curSession && (refFile || pendingOf(curSession).length)">
-          <div v-if="refFile" class="ctx-chip">
-            <span class="txt">@ {{ refFile.name }}</span>
-            <span class="x" @click="refFile=null">×</span>
+        <div class="ctx-stack" v-if="curSession && (refFiles.length || pendingOf(curSession).length)">
+          <div v-for="(f,fi) in refFiles" :key="'rf'+f.id" class="ctx-chip ref">
+            <span class="rf-at">@</span><span class="txt">{{ f.name }}</span>
+            <span class="x" @click="refFiles.splice(fi,1)">×</span>
           </div>
           <div v-for="(qt,i) in pendingOf(curSession)" :key="i" class="ctx-chip" :class="{noted:quoteNote(qt)}">
             <span class="txt">
@@ -468,9 +551,10 @@
   <!-- 选中浮层：直接写批注 → 回车挂到对话框（不发送，最后统一发） -->
   <div v-if="bubble.show" class="bubble-pop" :style="{top:bubble.top+'px', left:bubble.left+'px'}">
     <div class="bp-row">
-      <input ref="bubbleInput" v-model="bubble.draft" class="bp-input"
-             :placeholder="bubble.mode==='sheet' ? '写批注（可空），回车挂到对话…' : '写批注（可空），回车挂到对话…'"
-             @keydown.enter.prevent="submitBubble" @keydown.esc.prevent="bubble.show=false">
+      <textarea ref="bubbleInput" v-model="bubble.draft" class="bp-input" rows="1"
+             placeholder="写批注（可空），回车挂到对话，Shift+回车换行…"
+             @input="autosizeBubble"
+             @keydown.enter.exact.prevent="submitBubble" @keydown.esc.prevent="bubble.show=false"></textarea>
       <button class="bp-send" @mousedown.prevent="submitBubble" title="挂到对话框（不发送）">挂到对话 ↵</button>
     </div>
     <div class="bp-acts">
@@ -492,6 +576,7 @@ const Table        = (await import(u('extension-table'))).default;
 const TableRow     = (await import(u('extension-table-row'))).default;
 const TableHeader  = (await import(u('extension-table-header'))).default;
 const TableCell    = (await import(u('extension-table-cell'))).default;
+const Image        = (await import(u('extension-image'))).default;   // docx 内嵌图片（base64）在所见即所得视图里保真
 /* 逐条批阅用：从 @tiptap/pm 取 prosemirror（与编辑器同实例，避免重复 prosemirror） */
 const { Plugin }   = await import(`https://esm.sh/@tiptap/pm@2.11.5/state?deps=${PM}`);
 const { Decoration, DecorationSet } = await import(`https://esm.sh/@tiptap/pm@2.11.5/view?deps=${PM}`);
@@ -591,6 +676,8 @@ async function* streamMock(quote,q){
 createApp({
   setup(){
     const files=reactive([]); const activeId=ref(null); const active=ref(null);
+    const folders=reactive([]);                 // 文件夹路径列表（如 'Vault/道通科技/研报'），保留顺序；空文件夹也能显示
+    const expandedFolders=reactive({});         // 展开状态 {path:true}，跨刷新持久化
     const chatOpen=ref(true); const draft=ref("");
     const busy=ref(false);
     // key 优先级：本地 config.local.js(不进仓库) > 浏览器 localStorage(分享给朋友用，各自粘自己的) > 空(走 Mock)
@@ -605,7 +692,7 @@ createApp({
     const pendingOf=s=> s ? (s.pending || (s.pending=reactive([]))) : [];   // 每 tab 独立的引用堆
     const model=ref('deepseek-v4-pro');   // 默认 V4 Pro(带思考/reasoning_content)；Flash=deepseek-v4-flash，用户可切
     const showCot=ref(true);                 // 是否显示推理过程(COT)；联网由模型自主决策
-    const refFile=ref(null);                 // @ 引用的上下文文件
+    const refFiles=reactive([]);             // @ 引用的额外上下文文件（可多个，全局，按 id 去重；与挂载的绑定文件叠加）
     const suggest=reactive({show:false,type:'',items:[],idx:0});
     let abortCtrl=null;                      // 当前生成的中断控制器
 
@@ -622,7 +709,9 @@ createApp({
     const bubble=reactive({show:false,top:0,left:0,text:"",inEditor:false,mode:'doc',cellCount:0,rangeA1:'',draft:''});
     const bubbleInput=ref(null);
     let bubbleDragging=false, wantBubbleFocus=false;   // 拖选中不弹/不抢焦点，否则选一个字就被输入框夺焦中断
-    watch(()=>bubble.show, v=>{ if(v){ bubble.draft=''; if(wantBubbleFocus){ nextTick(()=>bubbleInput.value?.focus()); } wantBubbleFocus=false; } });
+    watch(()=>bubble.show, v=>{ if(v){ bubble.draft=''; const wf=wantBubbleFocus; wantBubbleFocus=false;
+      nextTick(()=>{ const el=bubbleInput.value; if(el){ el.style.height='auto'; if(wf) el.focus(); } }); } });
+    function autosizeBubble(){ const el=bubbleInput.value; if(el){ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,120)+'px'; } }
     const suggCount=ref(0); const ready=ref(false); const sheetLoading=ref(false);
     const sideTab=ref('files'); const openTabs=reactive([]); let editor=null; let lsAlive=false; let suppressDirty=false; let suggSeq=0;
     const uploading=ref(false); const uploadMsg=ref(''); const dragOver=ref(false);
@@ -686,8 +775,31 @@ createApp({
       {role:'ai',content:'空头三点：①95%+ 海外收入、地缘政治结构性隐患 ②充电桩竞争格局恶化、50% 毛利率存疑 ③AI Token 商业模式尚未验证。Tail risk：美国对华充电桩制裁、港股上市失败。'},
     ]}));
 
-    function buildDoc(id,name,icon,md){ return {id,name,icon,kind:"doc",html:marked.parse(md)}; }
-    files.push(buildDoc("md1","道通科技_一页纸.md","📄",SAMPLE_MD));
+    function buildDoc(id,name,icon,md,folder){ return {id,name,icon,kind:"doc",html:marked.parse(md),folder:folder||''}; }
+    /* ===== 文件夹树（WIKI / Vault 层级；从 folders 路径 + 文件 folder 字段推导）===== */
+    function childFolders(parent){                                   // parent 的直接子文件夹（parent='' 为顶层）
+      const pre = parent ? parent+'/' : '';
+      return folders.filter(p=>{ if(!p.startsWith(pre)) return false; const rest=p.slice(pre.length); return rest && !rest.includes('/'); });
+    }
+    function filesIn(folder){ return files.filter(f=>(f.folder||'')===folder); }
+    function folderIcon(path, open){ if(path==='WIKI')return '📚'; if(path==='Vault')return '🗄️'; return open?'📂':'📁'; }
+    function toggleFolder(path){ expandedFolders[path] = !expandedFolders[path]; }
+    function expandAncestors(folder){                                // 打开深层文件时自动展开其所有上级
+      if(!folder) return; const parts=folder.split('/'); let acc='';
+      for(const p of parts){ acc = acc? acc+'/'+p : p; expandedFolders[acc]=true; }
+    }
+    const treeRows = computed(()=>{                                  // 扁平化树（尊重展开状态）供侧栏 v-for
+      const rows=[];
+      (function walk(parent, depth){
+        for(const fp of childFolders(parent)){
+          const open = !!expandedFolders[fp];
+          rows.push({type:'folder', path:fp, name:fp.split('/').pop(), depth, open, count:filesIn(fp).length});
+          if(open) walk(fp, depth+1);
+        }
+        for(const f of filesIn(parent)) rows.push({type:'file', file:f, name:f.name, icon:f.icon, depth});
+      })('', 0);
+      return rows;
+    });
     const SAMPLE_QUICKSTART=`# Uniwork · 选中即问的 AI 投研工作台
 
 把 Word / Excel / Markdown 直接在浏览器里打开、编辑，配一个**会思考、会联网、会查行情、能直接改你文件**的 AI 助手。
@@ -712,9 +824,65 @@ createApp({
 
 ## 试试看
 选中文档里的任意文字 → 浮层写批注挂到对话让 AI 答 👆；或在对话框问：「英伟达现在股价多少？」「道通科技最近有什么催化？」`;
-    const SEED_VER=2;                                    // 改了种子文档(一页纸/快速入门)就 +1 → 老用户刷新自动更新，不必手动 ?reset
-    const SEED_MD={ md1:SAMPLE_MD, md2:SAMPLE_QUICKSTART };
-    files.push(buildDoc("md2","快速入门_101.md","📘", SAMPLE_QUICKSTART));
+    const SEED_VER=4;                                    // 双链改 inline 织入论点句子 → 老用户刷新自动更新内容
+    // ---- WIKI / Vault 文件夹骨架 ----
+    const SEED_FOLDERS=[
+      'WIKI','Vault',
+      'Vault/道通科技','Vault/道通科技/研报','Vault/道通科技/季报年报','Vault/道通科技/Model','Vault/道通科技/News','Vault/道通科技/Raw',
+      'Vault/满帮','Vault/满帮/研报','Vault/满帮/季报年报','Vault/满帮/Model','Vault/满帮/News','Vault/满帮/Raw',
+    ];
+    folders.push(...SEED_FOLDERS);
+    ['WIKI','Vault','Vault/道通科技','Vault/满帮'].forEach(p=>expandedFolders[p]=true);   // 默认展开顶层 + 两家公司
+    // ---- 双链示例内容（[[笔记名]] 互链）----
+    // 双链织在论点句子里（inline），不堆成开头/结尾的链接清单——反向链接片段才会落在真正的论点上
+    const WIKI_DT=`# 道通科技（688208.SH）
+
+> 全球智能诊断龙头，正切入数字能源（充电桩）与无人机。本页是投研主线，细节散在各笔记里。
+
+## 投资逻辑
+诊断是稳健的基本盘，真正的边际弹性在**充电桩**——2026 年净利率目标 5–10%、北美 L2 交流桩同比 +300%，这条线的逐季兑现在 [[道通科技_2024Q3点评]] 里跟踪，完整的业务拆分与目标价测算见 [[国君_道通科技_深度_2024]]。海外渠道扩张是第二个观察点，最新进展记录在 [[道通科技_海外渠道_202410]]。AI / 软件目前只算期权，估值不计入。
+
+## 风险与组合
+最大的风险是 95%+ 收入来自海外、地缘政治敞口高，组合里靠纯内需的 [[满帮]] 来对冲这块暴露。财务模型见 Vault/道通科技/Model，原始研报 PDF 见 Raw。`;
+    const WIKI_YMM=`# 满帮集团（YMM / Full Truck Alliance）
+
+> 中国数字货运龙头（运满满 + 货车帮）。
+
+## 投资逻辑
+双边网络效应是护城河，take-rate 仍在爬坡——会员费 + 交易佣金双轮，最新一季的兑现见 [[满帮_2024Q3点评]]，完整框架在 [[中金_满帮_深度_2024]]。增值服务（保险 / ETC / 能源）是打开第二曲线的关键变量。作为纯内需标的，它与海外敞口偏高的 [[道通科技]] 在组合里互为对冲。`;
+    const RB_DT=`# 国君 · 道通科技深度（2024-06）
+
+> 从 [[道通科技]] 的原始研报 PDF（见 Raw 目录）提取整理。买入，目标价 RMB 78。
+
+## 业务拆分
+诊断是基本盘，全球 TPMS 替换周期支撑稳定现金流。真正的弹性在数字能源：充电桩 2026 年净利率目标 5–10%、北美 L2 同比 +300%——这一判断已在 [[道通科技_2024Q3点评]] 里得到首次季度验证。AI / 软件的 Token 付费刚落地，目前只给期权价值。`;
+    const QR_DT=`# 道通科技 2024Q3 点评
+
+充电桩业务 2026 年净利率目标 5–10%、本季**盈利拐点确认**、自研液冷模块导入，印证了 [[国君_道通科技_深度_2024]] 对数字能源弹性的判断。北美 L2 交流桩同比 **+300%**、市占率仅次于特斯拉，渠道铺设节奏可对照 [[道通科技_海外渠道_202410]]。风险仍是 95%+ 海外收入的地缘敞口，组合层面靠纯内需的 [[满帮]] 对冲。`;
+    const NEWS_DT=`# 道通科技 · 海外渠道扩张（2024-10）
+
+公司加速欧美工商业充电渠道铺设，与多家本地 EPC 达成框架协议。结合季报 [[道通科技_2024Q3点评]] 的北美 L2 +300% 看，放量节奏好于预期，也为 [[国君_道通科技_深度_2024]] 的海外渠道逻辑补上了一手验证。`;
+    const RB_YMM=`# 中金 · 满帮深度（2024）
+
+货运 matching 龙头，take-rate 仍在爬坡。会员 + 交易佣金双轮，增值服务打开第二曲线——季度兑现见 [[满帮_2024Q3点评]]。相对海外敞口高的 [[道通科技]]，满帮是纯内需标的，组合里用来对冲。`;
+    const QR_YMM=`# 满帮 2024Q3 点评
+
+履约订单量同比双位数增长、take-rate 环比提升，验证了 [[中金_满帮_深度_2024]] 的网络效应判断。增值服务（能源 / 保险）开始贡献边际利润。`;
+    // ---- 种子笔记 [id, 文件名, 图标, md, 文件夹] ----
+    const SEED_NOTES=[
+      ['wiki_dt','道通科技.md','📄',WIKI_DT,'WIKI'],
+      ['wiki_ymm','满帮.md','📄',WIKI_YMM,'WIKI'],
+      ['md2','快速入门_101.md','📘',SAMPLE_QUICKSTART,'WIKI'],
+      ['rb_dt','国君_道通科技_深度_2024.md','📄',RB_DT,'Vault/道通科技/研报'],
+      ['qr_dt','道通科技_2024Q3点评.md','📄',QR_DT,'Vault/道通科技/季报年报'],
+      ['news_dt','道通科技_海外渠道_202410.md','📄',NEWS_DT,'Vault/道通科技/News'],
+      ['rb_ymm','中金_满帮_深度_2024.md','📄',RB_YMM,'Vault/满帮/研报'],
+      ['qr_ymm','满帮_2024Q3点评.md','📄',QR_YMM,'Vault/满帮/季报年报'],
+    ];
+    SEED_NOTES.forEach(n=>files.push(buildDoc(n[0],n[1],n[2],n[3],n[4])));
+    const SEED_MD=Object.fromEntries(SEED_NOTES.map(n=>[n[0],n[3]]));
+    const SEED_FOLDER_OF=Object.fromEntries(SEED_NOTES.map(n=>[n[0],n[4]])
+      .concat([['xlsx_fin','Vault/道通科技/Model'],['pdf_autel','Vault/道通科技/Raw'],['docx_real','Vault/道通科技/News'],['md1','WIKI']]));
 
     /* ===== 本地持久化（IndexedDB）：文件 / 会话 / UI 状态跨刷新保存 =====
        存储可结构化克隆的纯对象（docx ArrayBuffer、xlsx Blob、表格快照都能直接存）。
@@ -729,10 +897,13 @@ createApp({
     const jclone=x=> x==null?x:JSON.parse(JSON.stringify(x));
     let hydrating=false;
     function serFile(f){
-      const o={id:f.id,name:f.name,icon:f.icon,kind:f.kind};
+      const o={id:f.id,name:f.name,icon:f.icon,kind:f.kind,folder:f.folder||''};
       if(f.kind==='doc'){
-        o.html=f.html; if(f.editedHtml)o.editedHtml=f.editedHtml; o.edited=!!f.edited; o.view=f.view||'preview';
+        o.html=f.html; if(f.editedHtml)o.editedHtml=f.editedHtml; o.edited=!!f.edited;
         if(f.docxBuf instanceof ArrayBuffer) o.docxBuf=f.docxBuf;   // 结构化克隆可存二进制
+      }else if(f.kind==='pdf'){
+        if(f.pdfBuf instanceof ArrayBuffer) o.pdfBuf=f.pdfBuf;      // 原始 PDF 字节，跨刷新还原
+        if(f.pdfText) o.pdfText=f.pdfText;                          // 已提取文本（AI 上下文用）
       }else if(f.kind==='sheet'){
         if(f.url)o.url=f.url; if(f.file)o.file=f.file;              // File/Blob 可克隆
         let ls=f.lsData;                                            // 前台表格实时快照（不写回 reactive）
@@ -751,6 +922,7 @@ createApp({
     function metaObj(){ return { ver:1, seeded:true, seedVer:SEED_VER,
       activeId:activeId.value, activeSessionId:activeSessionId.value,
       chatTabIds:chatTabs.map(s=>s.id), openTabIds:openTabs.map(f=>f.id),
+      folders:[...folders], expandedFolders:{...expandedFolders},
       model:model.value, showCot:showCot.value }; }
     let tF=null,tS=null;
     function saveFilesSoon(){ if(hydrating)return; clearTimeout(tF); tF=setTimeout(()=>{ idbSet('files',files.map(serFile)).catch(()=>{}); idbSet('meta',metaObj()).catch(()=>{}); },500); }
@@ -765,10 +937,21 @@ createApp({
       try{
         files.splice(0,files.length);
         for(const x of sf){
-          const f={id:x.id,name:x.name,icon:x.icon,kind:x.kind};
-          if(x.kind==='doc'){ f.html=x.html; if(x.editedHtml)f.editedHtml=x.editedHtml; f.edited=!!x.edited; f.view=x.view||'preview'; if(x.docxBuf)f.docxBuf=x.docxBuf; }
+          const f={id:x.id,name:x.name,icon:x.icon,kind:x.kind,folder:x.folder||''};
+          if(x.kind==='doc'){ f.html=x.html; if(x.editedHtml)f.editedHtml=x.editedHtml; f.edited=!!x.edited; if(x.docxBuf)f.docxBuf=x.docxBuf; }
+          else if(x.kind==='pdf'){ if(x.pdfBuf)f.pdfBuf=x.pdfBuf; if(x.pdfText)f.pdfText=x.pdfText; }
           else if(x.kind==='sheet'){ if(x.url)f.url=x.url; if(x.file)f.file=x.file; if(x.lsData)f.lsData=x.lsData; }
           files.push(f);
+        }
+        // 文件夹结构 + 展开状态
+        folders.splice(0,folders.length);
+        if(Array.isArray(meta.folders)) folders.push(...meta.folders);
+        Object.keys(expandedFolders).forEach(k=>delete expandedFolders[k]);
+        if(meta.expandedFolders) Object.assign(expandedFolders, meta.expandedFolders);
+        if(!folders.length){                                   // 老用户迁移：无结构 → 套种子骨架，种子文件归位、其余归根
+          folders.push(...SEED_FOLDERS);
+          for(const f of files) f.folder = SEED_FOLDER_OF[f.id] || '';
+          ['WIKI','Vault','Vault/道通科技','Vault/满帮'].forEach(p=>expandedFolders[p]=true);
         }
         sessions.splice(0,sessions.length);
         for(const x of (ssv||[])){
@@ -798,7 +981,8 @@ createApp({
         element: tiptapEl.value,
         extensions: [ StarterKit, Underline,
           Table.configure({resizable:false}), TableRow, TableHeader, TableCell,
-          SuggInsert, SuggDelete, SuggControls ],
+          Image.configure({inline:false, allowBase64:true}),
+          SuggInsert, SuggDelete, SuggControls, WikiLink ],
         content: files[0]?.html||'',
         onSelectionUpdate: updateBubbleFromEditor,
         onUpdate: ()=>{ if(suppressDirty) return;
@@ -811,6 +995,11 @@ createApp({
         },
         onBlur: ()=>{ /* 保留 bubble 直到点按钮 */ },
       });
+      // 双链点击：抢在 ProseMirror 放置光标/拖选之前（捕获阶段），点 [[X]] 直接跳转
+      editor.view.dom.addEventListener('mousedown', e=>{
+        const el=e.target.closest && e.target.closest('.wikilink');
+        if(el){ e.preventDefault(); e.stopPropagation(); navigateWikilink(el.getAttribute('data-wl')); }
+      }, true);
       // 拖选修复：按下编辑器→进入拖选(先收起浮层)，松手→若有选区再弹浮层并聚焦输入
       editor.view.dom.addEventListener('mousedown', ()=>{ bubbleDragging=true; bubble.show=false; });
       document.addEventListener('mouseup', ()=>{ if(bubbleDragging){ bubbleDragging=false; setTimeout(()=>showEditorBubble(true),0); } });
@@ -834,19 +1023,18 @@ createApp({
 
     /* 预载真实 Word(.docx) / Excel(.xlsx)：docx 走 TipTap，xlsx 走 Luckysheet */
     async function preloadSamples(){
+      // 真实文件归入 Vault/道通科技 各子目录（md=从pdf提取的研报/季报已在种子里；这里放原始 docx/pdf/xlsx）
       try{
         const dbuf=await (await fetch('/sample_道通科技_调研纪要.docx')).arrayBuffer();
         const {value:html}=await mammoth.convertToHtml({arrayBuffer:dbuf.slice(0)});
-        files.splice(1,0,{id:'docx_real',name:'道通科技_调研纪要.docx',icon:'📝',kind:'doc',html,docxBuf:dbuf,view:'preview'});
+        files.push({id:'docx_real',name:'道通科技_调研纪要.docx',icon:'📝',kind:'doc',html,docxBuf:dbuf,folder:'Vault/道通科技/News'});
       }catch(e){ console.warn('docx 预载失败',e); }
-      try{  // 真实 Word 文件（完整样式/多表格），用于保真度对比
-        const mbuf=await (await fetch('/sample_LitianRobotics_VisitMemo.docx')).arrayBuffer();
-        const {value:mhtml}=await mammoth.convertToHtml({arrayBuffer:mbuf.slice(0)});
-        files.splice(2,0,{id:'docx_memo',name:'LitianRobotics_VisitMemo.docx',icon:'📝',kind:'doc',html:mhtml,docxBuf:mbuf,view:'preview'});
-      }catch(e){ console.warn('真实memo 预载失败',e); }
-      // xlsx 用 url 懒加载，打开时再经 LuckyExcel 转换
-      files.splice(2,0,{id:'xlsx_fin',name:'道通科技_财务摘要.xlsx',icon:'📊',kind:'sheet',url:'/sample_道通科技_财务摘要.xlsx'});
-      files.splice(3,0,{id:'xlsx_mt', name:'茅台历次提价分析.xlsx',icon:'📊',kind:'sheet',url:'/sample_茅台历次提价分析.xlsx'});
+      try{  // PDF 原始研报 → Raw
+        const pbuf=await (await fetch('/sample_Autel_InitiatingCoverage.pdf')).arrayBuffer();
+        files.push({id:'pdf_autel',name:'Autel_InitiatingCoverage.pdf',icon:'📕',kind:'pdf',pdfBuf:pbuf,folder:'Vault/道通科技/Raw'});
+      }catch(e){ console.warn('PDF 预载失败',e); }
+      // xlsx 财务模型 → Model（url 懒加载，打开时经 LuckyExcel 转换）
+      files.push({id:'xlsx_fin',name:'道通科技_财务摘要.xlsx',icon:'📊',kind:'sheet',url:'/sample_道通科技_财务摘要.xlsx',folder:'Vault/道通科技/Model'});
       // 深链：?open=<文件id或名称片段> 自动打开
       const want=new URLSearchParams(location.search).get('open');
       if(want){ const f=files.find(x=>x.id===want||x.name.includes(want)); if(f) openFile(f); }
@@ -858,52 +1046,88 @@ createApp({
       }
     }
     function openFile(f){
+      if(!f) return;
       if(active.value?.id!==f.id) snapshotActiveSheet();     // 离开当前表格前先存
       if(!openTabs.some(t=>t.id===f.id)) openTabs.push(f);   // 加入标签栏
+      expandAncestors(f.folder);                             // 展开文件所在的各级文件夹，让它在树里可见
       active.value=f; activeId.value=f.id; bubble.show=false; clearSuggState();
       if(f.kind==='doc'){
         if(editor){ suppressDirty=true; editor.commands.setContent(f.html); nextTick(()=>suppressDirty=false); }
         destroyLuckysheet();
-        if(f.docxBuf && f.view!=='edit') renderDocxPreview(f);
+      }else if(f.kind==='pdf'){
+        destroyLuckysheet();
+        renderPdf(f);
       }else if(f.kind==='sheet'){
         loadSheet(f);
       }
     }
 
-    /* ===== docx 高保真预览（docx-preview）===== */
-    let docxRenderedId=null;
-    async function renderDocxPreview(f){
+    /* ===== PDF 预览（pdf.js → canvas + 文字层，可选中加入对话）===== */
+    const pdfLoading=ref(false);
+    let pdfWorkerSet=false;
+    function ensurePdfWorker(){
+      if(pdfWorkerSet || !window.pdfjsLib) return;
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+      pdfWorkerSet=true;
+    }
+    /* pdf.js 用 requestAnimationFrame 调度 canvas 绘制；标签页隐藏/后台时浏览器暂停 rAF →
+       page.render() 永不 resolve（渲染卡死）。渲染期间临时把 rAF 垫成 setTimeout，保证隐藏/后台标签页也能画完。
+       refcount 兼容并发渲染；可见标签页里 setTimeout 版 rAF 对一次性文档渲染无可感副作用。 */
+    let _rafDepth=0, _rafOrig=null;
+    function rafShimOn(){ if(_rafDepth++===0){ _rafOrig=window.requestAnimationFrame; window.requestAnimationFrame=cb=>setTimeout(()=>cb(performance.now()),0); } }
+    function rafShimOff(){ if(--_rafDepth<=0){ _rafDepth=0; if(_rafOrig)window.requestAnimationFrame=_rafOrig; _rafOrig=null; } }
+
+    let pdfRenderedId=null, pdfRenderToken=0;
+    async function renderPdf(f){
       await nextTick();
-      const host=document.getElementById('docx-prev-host');
-      if(!host || docxRenderedId===f.id) return;
-      host.innerHTML='';
-      if(f.editedHtml){
-        // 已编辑：直接渲染编辑后的 HTML（反映改动），纸张样式
-        const page=document.createElement('div');
-        page.className='docx-edited-page doc-content';
-        page.innerHTML=f.editedHtml;
-        host.appendChild(page);
-        docxRenderedId=f.id; return;
-      }
+      const host=document.getElementById('pdf-host');
+      if(!host) return;
+      if(pdfRenderedId===f.id && host.childElementCount) return;     // 同一文件已渲染，直接复用 DOM
+      const myToken=++pdfRenderToken;
+      host.innerHTML=''; pdfLoading.value=true; rafShimOn();
       try{
-        await window.docx.renderAsync(f.docxBuf.slice(0), host, null,
-          {inWrapper:true, ignoreLastRenderedPageBreak:true, experimental:true});
-        docxRenderedId=f.id;
-      }catch(e){ console.warn('docx-preview 渲染失败，回退编辑模式', e); f.view='edit'; }
+        if(!window.pdfjsLib) throw new Error('pdf.js 未加载');
+        ensurePdfWorker();
+        const pdf=await window.pdfjsLib.getDocument({data:f.pdfBuf.slice(0)}).promise;
+        const wrap=document.querySelector('.pdf-wrap');
+        const avail=Math.min((wrap?wrap.clientWidth:900)-48, 900);   // 按容器宽度铺排
+        let fullText='';
+        for(let p=1;p<=pdf.numPages;p++){
+          if(myToken!==pdfRenderToken) return;                        // 渲染途中切走文件 → 放弃本次
+          const page=await pdf.getPage(p);
+          const base=page.getViewport({scale:1});
+          const scale=Math.max(0.6, Math.min(2, avail/base.width));   // 宽度自适应，限幅 0.6~2
+          const viewport=page.getViewport({scale});
+          const w=Math.floor(viewport.width), h=Math.floor(viewport.height);
+          const pageDiv=document.createElement('div'); pageDiv.className='pdf-page';
+          pageDiv.style.width=w+'px'; pageDiv.style.height=h+'px';
+          const canvas=document.createElement('canvas');
+          const ratio=window.devicePixelRatio||1;
+          canvas.width=Math.floor(viewport.width*ratio); canvas.height=Math.floor(viewport.height*ratio);
+          canvas.style.width=w+'px'; canvas.style.height=h+'px';
+          const cctx=canvas.getContext('2d'); cctx.scale(ratio,ratio);
+          pageDiv.appendChild(canvas); host.appendChild(pageDiv);
+          await page.render({canvasContext:cctx, viewport}).promise;
+          try{                                                         // 文字层：选中 → 加入对话（失败不影响预览）
+            const tc=await page.getTextContent();
+            const tl=document.createElement('div'); tl.className='textLayer';
+            tl.style.width=w+'px'; tl.style.height=h+'px';
+            const task=window.pdfjsLib.renderTextLayer({textContentSource:tc, container:tl, viewport, textDivs:[]});
+            pageDiv.appendChild(tl);
+            if(task&&task.promise) await task.promise;                 // 等文字层落位，选区对齐
+            fullText+=tc.items.map(i=>i.str).join(' ')+'\n';
+          }catch(e){ /* 文字层可选 */ }
+        }
+        f.pdfText=fullText.replace(/[ \t]+\n/g,'\n').slice(0,20000);   // 供 AI 上下文
+        pdfRenderedId=f.id; saveFilesSoon();
+      }catch(e){
+        console.warn('PDF 渲染失败',e);
+        host.innerHTML='<div class="pdf-fail">⚠️ PDF 渲染失败：'+String(e.message||e).slice(0,80)+'</div>';
+      }finally{ if(myToken===pdfRenderToken) pdfLoading.value=false; rafShimOff(); }
     }
-    function toggleDocxView(){
-      const f=active.value; if(!f?.docxBuf) return;
-      if(f.view==='edit'){
-        // 编辑 → 预览：若改过，预览改为渲染编辑后的 HTML（同步改动）
-        if(f.edited && editor){ f.editedHtml=editor.getHTML(); f.html=f.editedHtml; }
-        f.view='preview'; docxRenderedId=null; renderDocxPreview(f);
-      }else{
-        f.view='edit';
-      }
-    }
-    // 预览区为普通 DOM：原生选区 → 悬浮框（只读，仅"加入对话"）
+    // 只读预览区为普通 DOM：原生选区 → 悬浮框（仅"加入对话"）。docx 已走 TipTap，这里服务 PDF 文字层。
     document.addEventListener('mouseup', ()=>{ setTimeout(()=>{
-      const host=document.getElementById('docx-prev-host'); if(!host||!host.offsetParent) return;
+      const host=document.getElementById('pdf-host'); if(!host||!host.offsetParent) return;
       const sel=window.getSelection();
       if(!sel||sel.isCollapsed||!sel.toString().trim()) return;
       if(!host.contains(sel.anchorNode)||!host.contains(sel.focusNode)) return;
@@ -1082,7 +1306,7 @@ createApp({
     // 统一入口：文件选择 + 拖拽都走这里，带 loading / 错误处理 / 多文件
     async function ingestFiles(list){
       if(!list.length) return;
-      const ALLOWED=['docx','xlsx','md','txt','csv'];
+      const ALLOWED=['docx','xlsx','md','txt','csv','pdf'];
       let last=null;
       for(const file of list){
         const ext=(file.name.split('.').pop()||'').toLowerCase(); const id='u'+Date.now()+Math.round(performance.now());
@@ -1092,7 +1316,10 @@ createApp({
           if(ext==='docx'){
             const buf=await file.arrayBuffer();
             const {value:html}=await mammoth.convertToHtml({arrayBuffer:buf.slice(0)});
-            last={id,name:file.name,icon:'📝',kind:'doc',html,docxBuf:buf,view:'preview'}; files.push(last);
+            last={id,name:file.name,icon:'📝',kind:'doc',html,docxBuf:buf}; files.push(last);
+          }else if(ext==='pdf'){
+            const buf=await file.arrayBuffer();
+            last={id,name:file.name,icon:'📕',kind:'pdf',pdfBuf:buf}; files.push(last);
           }else if(ext==='xlsx'){
             last={id,name:file.name,icon:'📊',kind:'sheet',file}; files.push(last);
           }else if(ext==='csv'){
@@ -1129,7 +1356,9 @@ createApp({
       showEditorBubble(false);                    // 键盘 Shift+方向选区：弹出但不抢焦点
     }
     // 表格区由 Luckysheet 自带交互（单元格选区/公式栏/统计），悬浮框仅作用于文档
-    window.addEventListener("scroll",()=>bubble.show=false,true);
+    // 页面/预览区滚动时收起浮层；但**批注输入框内部的横向/纵向滚动不算**（长批注会触发 input/textarea 自滚 →
+    // 捕获阶段误判为页面滚动 → 浮层被静默收起、批注丢失）。来源在 .bubble-pop 内的滚动一律忽略。
+    window.addEventListener("scroll",e=>{ const t=e.target; if(t&&t.closest&&t.closest('.bubble-pop')) return; bubble.show=false; },true);
 
     function askFromSelection(){
       const t=sessionForCurrentFile(); if(!t) return;   // 复用/新建绑定当前文件的对话 tab（满员则提示）
@@ -1210,14 +1439,65 @@ createApp({
       } } }) ]; }
     });
 
+    /* ===== 双链 [[笔记名]]：解析 / 跳转 / 反向链接（Obsidian 风，编辑器内实时可点）===== */
+    const WIKILINK_RE=/\[\[([^\[\]]+?)\]\]/g;
+    function noteBase(name){ return (name||'').replace(/\.(md|markdown|docx|txt)$/i,''); }   // 去扩展名得笔记名
+    function resolveNote(target){                                    // 按笔记名跨 WIKI+Vault 匹配（不分大小写）
+      const t=(target||'').trim().toLowerCase(); if(!t) return null;
+      return files.find(f=>noteBase(f.name).toLowerCase()===t) || null;
+    }
+    function createNoteFromLink(target){                             // 未解析链接 → 点了就建空笔记（建在当前笔记同目录）
+      const name=target.trim().replace(/\.(md|markdown)$/i,'')+'.md';
+      const folder=(active.value&&active.value.folder)||'WIKI';
+      const f=buildDoc('u'+Date.now()+Math.round(performance.now()), name, '📄', '# '+target.trim()+'\n\n', folder);
+      files.push(f); saveFilesSoon(); openFile(f);
+    }
+    function navigateWikilink(target){ const f=resolveNote(target); if(f) openFile(f); else createNoteFromLink(target); }
+    function openBacklink(bl){                                       // 点反向链接：跳到来源笔记里「引用本笔记的那一处」并高亮，而非只开到顶部
+      const me=noteBase(active.value&&active.value.name||'').toLowerCase();   // 必须在 openFile 前抓（之后 active 变成来源笔记）
+      openFile(bl.file);
+      let tries=15;
+      const hop=()=>{                                              // 轮询等内容渲染 + 双链装饰生成，再滚动并高亮
+        const el=[...document.querySelectorAll('.doc-content .wikilink')].find(l=>(l.getAttribute('data-wl')||'').trim().toLowerCase()===me);
+        if(el){ el.scrollIntoView({block:'center'}); el.classList.add('wikilink-flash'); setTimeout(()=>el.classList.remove('wikilink-flash'),1500); }
+        else if(--tries>0) setTimeout(hop, 90);
+      };
+      setTimeout(hop, 90);
+    }
+    const backlinks=computed(()=>{                                   // 指向「当前笔记」的所有来源（反向链接）
+      const f=active.value; if(!f||f.kind!=='doc') return [];
+      const me=noteBase(f.name).toLowerCase(); const out=[];
+      for(const o of files){
+        if(o.id===f.id||o.kind!=='doc') continue;
+        const text=(o.html||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ');
+        let m,snip=''; WIKILINK_RE.lastIndex=0;
+        while((m=WIKILINK_RE.exec(text))){
+          if(m[1].split('|')[0].trim().toLowerCase()===me){ const i=Math.max(0,m.index-26); snip=(i>0?'…':'')+text.slice(i,m.index+m[0].length+26).trim()+'…'; break; }
+        }
+        if(snip) out.push({file:o, snippet:snip});
+      }
+      return out;
+    });
+    const WikiLink=Extension.create({ name:'wikiLink',                // 编辑器里把 [[X]] 实时装饰成可点链接
+      addProseMirrorPlugins(){ return [ new Plugin({ props:{ decorations(state){
+        const decos=[];
+        state.doc.descendants((node,pos)=>{ if(!node.isText||!node.text) return;
+          let m; const re=/\[\[([^\[\]]+?)\]\]/g;
+          while((m=re.exec(node.text))){
+            const from=pos+m.index, to=from+m[0].length, target=m[1].split('|')[0].trim();
+            decos.push(Decoration.inline(from,to,{class: resolveNote(target)?'wikilink':'wikilink wikilink-unresolved','data-wl':target}));
+          }
+        });
+        return DecorationSet.create(state.doc, decos);
+      } } }) ]; }
+    });
+
     /* ===== 对话（含 AI 操作文件能力）===== */
-    function sheetSnapshot(){
-      try{
-        const all=window.luckysheet.getAllSheets();
-        const cur=window.luckysheet.getSheet();
-        const sh=all.find(s=>s.index===cur.index)||all[0];
-        const data=sh.data||[];
-        const out=[];
+    // 把一个 Luckysheet sheet 对象（getAllSheets 元素）转成 "A1=值 | B2=值" 文本快照；data(二维)优先、celldata(稀疏)兜底
+    function snapSheetObj(sh){
+      if(!sh) return '';
+      if(Array.isArray(sh.data)&&sh.data.length){
+        const data=sh.data, out=[];
         for(let r=0;r<Math.min(data.length,40);r++){
           const row=data[r]||[];
           for(let c=0;c<Math.min(row.length,15);c++){
@@ -1227,7 +1507,20 @@ createApp({
           }
         }
         return out.join(' | ');
-      }catch(e){ return ''; }
+      }
+      if(Array.isArray(sh.celldata)){            // 后台 sheet 可能只有稀疏 celldata
+        const cells=[];
+        for(const cd of sh.celldata){ if(!cd||cd.r>=40||cd.c>=15) continue; const cell=cd.v; const v=(cell&&typeof cell==='object')?(cell.m ?? cell.v):cell; if(v===''||v==null) continue; cells.push([cd.r,cd.c,colName(cd.c)+(cd.r+1)+'='+v]); }
+        cells.sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
+        return cells.map(x=>x[2]).join(' | ');
+      }
+      return '';
+    }
+    function sheetSnapshot(){          // 前台当前 sheet 实时快照
+      try{ const all=window.luckysheet.getAllSheets(); const cur=window.luckysheet.getSheet(); return snapSheetObj(all.find(s=>s.index===cur.index)||all[0]); }catch(e){ return ''; }
+    }
+    function sheetSnapshotFrom(lsData){ // 后台绑定表格：从存好的 lsData 快照取活动 sheet
+      try{ if(!Array.isArray(lsData)||!lsData.length) return ''; return snapSheetObj(lsData.find(s=>s.status===1)||lsData[0]); }catch(e){ return ''; }
     }
     /* ===== 中断（Esc / 停止按钮）：只停当前 tab 的生成 ===== */
     function stopGen(){
@@ -1255,7 +1548,7 @@ createApp({
       const at=v.match(/@([^\s@]*)$/);                  // 末尾 @xxx
       if(at){
         const kw=at[1];
-        suggest.items=files.filter(f=>!kw||f.name.includes(kw)).map(f=>({label:'@'+f.name, desc:f.kind==='sheet'?'表格':'文档', file:f}));
+        suggest.items=files.filter(f=>!kw||f.name.includes(kw)).map(f=>({label:'@'+f.name, desc:f.kind==='sheet'?'表格':f.kind==='pdf'?'PDF':'文档', file:f}));
         suggest.type='@'; suggest.idx=0; suggest.show=true; return;
       }
       suggest.show=false;
@@ -1263,7 +1556,7 @@ createApp({
     function pickSuggest(i){
       const it=suggest.items[i]; if(!it) return;
       if(suggest.type==='/'){ draft.value=it.tpl; }
-      else { refFile.value=it.file; draft.value=draft.value.replace(/@[^\s@]*$/,''); }
+      else { if(!refFiles.some(f=>f.id===it.file.id)) refFiles.push(it.file); draft.value=draft.value.replace(/@[^\s@]*$/,''); }   // 多文件：追加去重
       suggest.show=false; autosize();
       nextTick(()=>document.querySelector('.input-row textarea')?.focus());
     }
@@ -1349,8 +1642,8 @@ createApp({
       return { content, toolCalls:Object.values(tcs).filter(t=>t.name) };
     }
     // 推理驱动的流式 ReAct：同一模型 边流式思考(COT) 边决定调工具 → 执行 → 继续思考 → 作答（COT 在调工具之前就上屏）
-    async function runHarness(sys, userContent, aiMsg, signal, tick, ctxFile){
-      const msgs=[ {role:'system',content:sys}, {role:'user',content:userContent} ];
+    async function runHarness(sys, history, userContent, aiMsg, signal, tick, ctxFile){
+      const msgs=[ {role:'system',content:sys}, ...history, {role:'user',content:userContent} ];
       const gathered=[]; const MAX=4;
       for(let round=0; round<MAX; round++){
         if(signal.aborted) throw new DOMException('aborted','AbortError');
@@ -1374,10 +1667,16 @@ createApp({
       aiMsg.quoteCards=gathered.filter(g=>g.quote).map(g=>g.quote);
       aiMsg.sources=gathered.flatMap(g=>g.sources||[]);
       if(!aiMsg.content.trim() && gathered.length){   // 兜底：到上限仍没答案 → 用已检索资料强制作答（无工具）
-        const stream=streamDeepSeek([{role:'system',content:sys},{role:'user',content:userContent+'\n\n【已检索资料】\n'+gathered.map(g=>g.text).join('\n\n')+'\n\n请据此直接作答。'}], apiKey.value, model.value, signal);
+        const stream=streamDeepSeek([{role:'system',content:sys},...history,{role:'user',content:userContent+'\n\n【已检索资料】\n'+gathered.map(g=>g.text).join('\n\n')+'\n\n请据此直接作答。'}], apiKey.value, model.value, signal);
         for await(const ev of stream){ if(signal.aborted) break; if(ev.type==='reasoning') aiMsg.reasoning+=ev.text; else aiMsg.content+=ev.text; tick(); }
       }
       applyAIOps(aiMsg, ctxFile);
+    }
+
+    // 把一条用户消息（引用片段 + 批注 + 问题 [+ 文件上下文]）拼成发给模型的文本；send 与历史回放共用，保证格式一致
+    function fmtUserTurn(quotes,q,ctx=''){
+      const qz=(quotes&&quotes.length)?quotes.map((qt,i)=>{const n=quoteNote(qt); return `【选中片段${quotes.length>1?(i+1):''}】\n${quoteText(qt)}`+(n?`\n（针对此处的批注：${n}）`:'');}).join('\n\n')+'\n\n':'';
+      return qz+(q?`【问题】\n${q}`:'请针对以上选中片段及批注作答。')+ctx;
     }
 
     async function send(){
@@ -1387,7 +1686,14 @@ createApp({
       if(!q && !(existing && pendingOf(existing).length)) return;   // 既无问题也无引用 → 不发
       const sess=ensureSession(); if(!sess) return;          // tab 满员且无当前会话
       if(sess.busy) return;                                   // 该 tab 生成中（其他 tab 可并行发）
+      if(!sess.bound && active.value) sess.bound=active.value.id;   // 通用(未绑定)会话首问：把当前预览文件钉成固定上下文，之后切预览不再漂移
       const quotes=pendingOf(sess).slice(); pendingOf(sess).splice(0);   // batch：一次带走全部引用（含批注）
+      // 本轮之前的完整对话历史 → API 消息（修复：旧版 runHarness 只发当前一条，模型看不到上文 / md 注入像是丢了）
+      const history=sess.messages.map(m=>{
+        if(m.role==='ai') return (m.content&&m.content.trim())?{role:'assistant',content:m.content}:null;
+        if(m.role==='user') return {role:'user',content:fmtUserTurn(m.quotes||[], m.content||'')};
+        return null;
+      }).filter(Boolean);
       sess.messages.push({role:"user",content:q,quotes});
       if(sess.title==='新会话') sess.title=q.slice(0,18);
       draft.value=""; autosize();
@@ -1403,26 +1709,38 @@ createApp({
       let ctx='';
       if(ctxFile?.kind==='sheet'){
         if(active.value?.id===ctxFile.id) ctx=`\n\n【当前表格：${ctxFile.name}（单元格快照）】\n`+sheetSnapshot();
-        else ctx=`\n\n【绑定表格：${ctxFile.name}】（该表格当前未在前台打开，无法读取单元格数据；如需逐格分析请切换到该文件）`;
+        else { const snap=sheetSnapshotFrom(ctxFile.lsData);          // 后台绑定表格：注入上次离开前 snapshotActiveSheet 落的 lsData 快照
+          ctx = snap ? `\n\n【绑定表格：${ctxFile.name}（单元格快照，可能非最新；逐格精算请切到前台）】\n`+snap
+                     : `\n\n【绑定表格：${ctxFile.name}】（尚未在前台打开过、暂无单元格快照；如需逐格分析请切换到该文件）`; }
       }else if(ctxFile?.kind==='doc'){
         const txt=(active.value?.id===ctxFile.id && editor)
           ? editor.getText()                                          // 前台：取最新（含未保存修改）
-          : (ctxFile.html||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ');  // 后台：取文件内容
+          : (ctxFile.editedHtml||ctxFile.html||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ');  // 后台：优先已编辑 ground truth，回退原始
         ctx=`\n\n【当前文档：${ctxFile.name}】\n`+txt.slice(0,6000);
+      }else if(ctxFile?.kind==='pdf'){
+        const txt=(ctxFile.pdfText||'').trim();
+        ctx=txt ? `\n\n【当前PDF：${ctxFile.name}】\n`+txt.slice(0,6000)
+                : `\n\n【当前PDF：${ctxFile.name}】（文本尚未就绪，请先在前台打开该 PDF 完成渲染后再问）`;
       }
-      // @ 引用的文件作为额外上下文
-      if(refFile.value){
-        const f=refFile.value;
+      // @ 引用的文件作为额外上下文（可多个，依次注入；与挂载的绑定文件叠加）
+      for(const f of refFiles){
+        if(f.id===ctxFile?.id) continue;                              // 已作主上下文注入，避免重复
         if(f.kind==='doc'){
-          const txt=(f.html||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+          const txt=(f.editedHtml||f.html||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
           ctx+=`\n\n【引用文件：${f.name}】\n`+txt.slice(0,6000);
-        }else{
-          ctx+=`\n\n【引用文件：${f.name}】\n（表格文件，如需逐格数据请先打开该文件）`;
+        }else if(f.kind==='pdf'){
+          const txt=(f.pdfText||'').trim();
+          ctx+= txt ? `\n\n【引用文件：${f.name}】\n`+txt.slice(0,6000)
+                    : `\n\n【引用文件：${f.name}】\n（PDF 文本未就绪，请先打开该文件完成渲染）`;
+        }else if(f.kind==='sheet'){
+          const snap = (active.value?.id===f.id) ? sheetSnapshot() : sheetSnapshotFrom(f.lsData);
+          ctx+= snap ? `\n\n【引用表格：${f.name}（单元格快照）】\n`+snap
+                     : `\n\n【引用表格：${f.name}】\n（表格文件，如需逐格数据请先打开该文件）`;
         }
       }
 
       // 组装用户消息（引用 + 问题 + 文件上下文）——同一条消息喂给流式 ReAct
-      const userContent=(quotes.length?quotes.map((qt,i)=>{const n=quoteNote(qt); return `【选中片段${quotes.length>1?(i+1):''}】\n${quoteText(qt)}`+(n?`\n（针对此处的批注：${n}）`:'');}).join('\n\n')+'\n\n':'')+(q?`【问题】\n${q}`:'请针对以上选中片段及批注作答。')+ctx;
+      const userContent=fmtUserTurn(quotes,q,ctx);
 
       const _dt=new Date(), _p2=n=>String(n).padStart(2,'0');
       const _today=`${_dt.getFullYear()}-${_p2(_dt.getMonth()+1)}-${_p2(_dt.getDate())} 星期${'日一二三四五六'[_dt.getDay()]}`;
@@ -1446,7 +1764,7 @@ createApp({
 改动会以高亮/建议形式呈现，由用户确认。`;
       try{
         if(apiKey.value){
-          await runHarness(sys, userContent, aiMsg, signal, tick, ctxFile);   // 流式 ReAct：思考(COT)→工具→作答→应用 ops
+          await runHarness(sys, history, userContent, aiMsg, signal, tick, ctxFile);   // 流式 ReAct：思考(COT)→工具→作答→应用 ops
         }else{
           const stream=streamMock(quoteText(quotes[0])||'',q);                // 无 key：Mock
           for await(const ev of stream){ if(signal.aborted) break; aiMsg.content+=ev.text; tick(); }
@@ -1477,7 +1795,6 @@ createApp({
       }else if(obj.target==='doc'){
         if(target?.kind==='doc'){
           if(active.value?.id!==target.id) openFile(target);                       // 自动切到绑定文档展示修改
-          if(target.docxBuf && target.view!=='edit') target.view='edit';           // 预览不可见 → 切编辑模式
           applied=applyDocOps(ops);
           if(!applied) reason='未在文档中定位到要修改的原文';
         }else reason='该对话绑定的不是文档文件';
@@ -1542,7 +1859,8 @@ createApp({
     function persistDocGroundTruth(){
       const f=active.value; if(!f||f.kind!=='doc'||!editor) return;
       f.html=editor.getHTML();
-      if(f.docxBuf){ f.edited=true; f.editedHtml=f.html; docxRenderedId=null; if(f.view!=='edit') renderDocxPreview(f); }
+      if(f.docxBuf){ f.edited=true; f.editedHtml=f.html; }   // docx 改动同步到导出用 ground truth
+      saveFilesSoon();
     }
     function applyDocOps(ops){
       const schema=editor.state.schema; let n=0;
@@ -1567,8 +1885,13 @@ createApp({
     }
 
     /* ===== 保存 / 导出（人类操作）===== */
-    function exportExt(f){ if(!f) return ''; if(f.kind==='sheet') return '.xlsx'; if(f.docxBuf) return '.docx'; if(/\.md$/i.test(f.name)) return '.md'; return '.html'; }
-    function exportActive(){ const f=active.value; if(!f) return; snapshotActiveSheet(); f.kind==='sheet'?exportSheet(f):exportDoc(f); }
+    function exportExt(f){ if(!f) return ''; if(f.kind==='sheet') return '.xlsx'; if(f.kind==='pdf') return '.pdf'; if(f.docxBuf) return '.docx'; if(/\.md$/i.test(f.name)) return '.md'; return '.html'; }
+    function exportActive(){ const f=active.value; if(!f) return; snapshotActiveSheet(); f.kind==='sheet'?exportSheet(f):f.kind==='pdf'?exportPdf(f):exportDoc(f); }
+    function exportPdf(f){   // PDF 只读，原样下载
+      if(!f.pdfBuf) return;
+      const blob=new Blob([f.pdfBuf],{type:'application/pdf'});
+      const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=f.name.endsWith('.pdf')?f.name:f.name+'.pdf'; a.click();
+    }
     function exportSheet(f){
       const wb=XLSX.utils.book_new();
       window.luckysheet.getAllSheets().forEach(sh=>{
@@ -1581,7 +1904,7 @@ createApp({
     function exportDoc(f){
       // docx：编辑过 → 用 html-docx 生成 Word 可打开的 .docx（含改动）；没编辑 → 原始文件原样保存
       if(f.docxBuf){
-        const editedHtml = (f.view==='edit' && editor) ? editor.getHTML() : f.editedHtml;
+        const editedHtml = (active.value?.id===f.id && editor) ? editor.getHTML() : f.editedHtml;
         let blob;
         if(editedHtml && window.htmlDocx){
           blob=window.htmlDocx.asBlob('<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>'+editedHtml+'</body></html>');
@@ -1625,13 +1948,14 @@ createApp({
     function autosize(){ nextTick(()=>{ const t=document.querySelector(".input-row textarea"); if(t){t.style.height="auto";t.style.height=Math.min(t.scrollHeight,120)+"px";} }); }
 
     return { files,activeId,active,chatOpen,messages,draft,busy,apiKey,model,showCot,
-             refFile,suggest,stopGen,onInput,onInputKeydown,pickSuggest,pendingOf,
-             bubbleInput,submitBubble,quoteText,quoteNote,
+             refFiles,suggest,stopGen,onInput,onInputKeydown,pickSuggest,pendingOf,
+             bubbleInput,submitBubble,autosizeBubble,quoteText,quoteNote,
              tiptapEl,msgsEl,bubble,suggCount,ready,sheetLoading,sheetEdits,
              sideTab,sessions,activeSessionId,newSession,openSession,curSession,archiveSession,
              chatTabs,closeChatTab,tabLabel,boundFileOf,curBusy,
-             openTabs,closeTab,exportActive,exportExt,undoSheetEdits,acceptSheetEdits,toggleDocxView,
+             openTabs,closeTab,exportActive,exportExt,undoSheetEdits,acceptSheetEdits,pdfLoading,
              openFile,onUpload,onDrop,uploading,uploadMsg,dragOver,askFromSelection,rewriteSelection,acceptAll,rejectAll,
+             treeRows,toggleFolder,folderIcon,backlinks,openBacklink,
              addSheetRangeToChat,fmtQuote,
              send,renderMd,escapeHtml,autosize,resetLocal,setApiKey };
   }

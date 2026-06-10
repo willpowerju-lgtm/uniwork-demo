@@ -8,8 +8,8 @@
 
 ## ✨ 它能做什么
 
-- **三类 Office 文件**：md / docx → 富文本编辑（TipTap）；docx 默认高保真预览（docx-preview），可切编辑；xlsx / csv → 真·Excel（Luckysheet，公式、Cmd+D 填充）。
-- **选中即问**：在文档里划选文字、或在表格里框选单元格 → 浮层写批注 → 回车挂到对话（可挂多条，一起发）。
+- **四类文件**：md / docx → **所见即所得，打开即可直接编辑**（TipTap，无预览/编辑切换）；xlsx / csv → 真·Excel（Luckysheet，公式、Cmd+D 填充）；**pdf → 高清预览（pdf.js），文字可选中**。
+- **选中即问**：在文档里划选文字、表格里框选单元格、或 **PDF 上选中文字** → 浮层写批注 → 回车挂到对话（可挂多条，一起发）。
 - **先思考再行动**：默认 **DeepSeek V4 Pro**，**灰色流式展示思考过程（COT）**，想清楚了才决定要不要调工具 —— 一条**流式 ReAct** 循环。
 - **按需用工具**（function calling）：
   - `web_search` —— 要最新消息/新闻/查证就联网搜（答案带来源 `[n]`）；
@@ -47,7 +47,7 @@ python3 server.py 4188
 
 ```
 浏览器（单文件 index.html，Vue3 + CDN）
-  ├─ 文档  TipTap / mammoth / docx-preview / html-docx-js / turndown
+  ├─ 文档  TipTap(+image) / mammoth / html-docx-js / turndown   ·   PDF  pdf.js(canvas+文字层)
   ├─ 表格  Luckysheet / LuckyExcel / SheetJS
   ├─ AI    DeepSeek V4（OpenAI 兼容）：流式 ReAct（reasoning_content + 原生 tools）
   └─ 存储  IndexedDB（文件二进制 / 会话 / UI 状态，刷新不丢）
