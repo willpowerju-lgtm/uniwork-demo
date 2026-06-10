@@ -385,7 +385,7 @@
       </div>
       <div class="msgs" ref="msgsEl">
         <div v-if="!messages.length" class="empty">
-          选中文档里的任意文本<br>① 点 <b>「加入对话」</b> 针对片段提问<br>② 点 <b>「AI 改写」</b> 生成可接受/拒绝的修改
+          选中文档里的任意文本 → 浮层里写批注 → <b>挂到对话</b>，针对片段提问；或直接在下方对话框提问、让 AI 改文件。
         </div>
         <template v-for="(m,i) in messages" :key="i">
           <div v-for="(qt,qi) in (m.quotes||(m.quote?[m.quote]:[]))" :key="'q'+qi" class="quote">
@@ -477,7 +477,6 @@
       <span class="bp-tag" v-if="bubble.mode==='sheet'">选区 {{ bubble.rangeA1 }} · {{ bubble.cellCount }} 格</span>
       <span class="bp-tag" v-else>已选 {{ bubble.text.length }} 字</span>
       <span class="spacer" style="flex:1"></span>
-      <button v-if="bubble.inEditor" class="bp-rewrite" @mousedown.prevent="rewriteSelection" :disabled="busy">AI 改写</button>
     </div>
   </div>
 </div>
@@ -689,8 +688,7 @@ createApp({
 
     function buildDoc(id,name,icon,md){ return {id,name,icon,kind:"doc",html:marked.parse(md)}; }
     files.push(buildDoc("md1","道通科技_一页纸.md","📄",SAMPLE_MD));
-    files.push(buildDoc("md2","快速入门_101.md","📘",
-`# Uniwork · 选中即问的 AI 投研工作台
+    const SAMPLE_QUICKSTART=`# Uniwork · 选中即问的 AI 投研工作台
 
 把 Word / Excel / Markdown 直接在浏览器里打开、编辑，配一个**会思考、会联网、会查行情、能直接改你文件**的 AI 助手。
 
@@ -713,7 +711,10 @@ createApp({
 - **宁缺毋假**：工具没取到就如实说"取不到、请自行核实"，绝不拿旧知识冒充实时数据。
 
 ## 试试看
-选中**这一整句话**，点浮层「AI 改写」让它润色 👆；或在对话框问：「英伟达现在股价多少？」「道通科技最近有什么催化？」`));
+选中文档里的任意文字 → 浮层写批注挂到对话让 AI 答 👆；或在对话框问：「英伟达现在股价多少？」「道通科技最近有什么催化？」`;
+    const SEED_VER=2;                                    // 改了种子文档(一页纸/快速入门)就 +1 → 老用户刷新自动更新，不必手动 ?reset
+    const SEED_MD={ md1:SAMPLE_MD, md2:SAMPLE_QUICKSTART };
+    files.push(buildDoc("md2","快速入门_101.md","📘", SAMPLE_QUICKSTART));
 
     /* ===== 本地持久化（IndexedDB）：文件 / 会话 / UI 状态跨刷新保存 =====
        存储可结构化克隆的纯对象（docx ArrayBuffer、xlsx Blob、表格快照都能直接存）。
@@ -747,7 +748,7 @@ createApp({
           quoteCards:(m.quoteCards&&m.quoteCards.length)?jclone(m.quoteCards):undefined })),
         pending: (s.pending&&s.pending.length)?jclone(s.pending):[] };
     }
-    function metaObj(){ return { ver:1, seeded:true,
+    function metaObj(){ return { ver:1, seeded:true, seedVer:SEED_VER,
       activeId:activeId.value, activeSessionId:activeSessionId.value,
       chatTabIds:chatTabs.map(s=>s.id), openTabIds:openTabs.map(f=>f.id),
       model:model.value, showCot:showCot.value }; }
@@ -781,6 +782,9 @@ createApp({
         (meta.openTabIds||[]).forEach(id=>{ const f=files.find(y=>y.id===id); if(f)openTabs.push(f); });
         if(meta.model && /^deepseek-v4-/.test(meta.model))model.value=meta.model;   // 只还原 V4 档（旧 reasoner/chat ID 落回默认，避免下拉框错位）
         if(typeof meta.showCot==='boolean')showCot.value=meta.showCot;
+        if((meta.seedVer||1)!==SEED_VER){                    // 种子文档升级：刷新内置 md(一页纸/快速入门)到最新，保留用户上传与会话
+          for(const f of files){ if(SEED_MD[f.id]) f.html=marked.parse(SEED_MD[f.id]); }
+        }
         activeSessionId.value = (meta.activeSessionId && sessions.some(s=>s.id===meta.activeSessionId)) ? meta.activeSessionId : (chatTabs[0]?.id||null);
         const af=files.find(f=>f.id===meta.activeId)||files[0];
         hydrating=false;

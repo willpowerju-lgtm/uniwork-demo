@@ -157,6 +157,10 @@ def fetch_cn_macro(indicator):
 
 
 class Handler(SimpleHTTPRequestHandler):
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-store, max-age=0")   # 静态文件永远取最新，改完刷新即见，无需硬刷
+        super().end_headers()
+
     def do_GET(self):
         if self.path.startswith("/api/search"):
             return self.handle_search()
